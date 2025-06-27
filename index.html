@@ -166,7 +166,7 @@ function exportarCSV() {
             const qtd = input?.value;
             const val = label.innerText.split('kVAR')[0].replace(/\n/g, '').trim();
             if (qtd > 0) {
-              partes.push(`${qtd}x${val}kVA`);
+              partes.push(`${qtd}x${val}kVAR`);
             }
           });
           return partes.join(" + ");
