@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<title>Simulador de Fator de Potência</title>
+<style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      padding: 20px;
+      background: linear-gradient(to right, #e3f2fd, #ffffff);
+    }
+    h1 {
+      text-align: center;
+      color: #0d47a1;
+    }
+    .section {
+      margin-bottom: 30px;
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .legend {
+      margin-bottom: 15px;
+      font-size: 0.95rem;
+      background-color: #fff3cd;
+      border: 1px solid #ffeeba;
+      padding: 12px;
+      border-radius: 6px;
+      color: #856404;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 10px;
+      font-size: 0.9rem;
+    }
+    th {
+      background-color: #1976d2;
+      color: white;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: center;
+      vertical-align: top;
+    }
+    tr:nth-child(even) {
+      background-color: #e3f2fd;
+    }
+    tr:nth-child(odd) {
+      background-color: #ffffff;
+    }
+    tr.highlight {
+      background-color: #ffcdd2 !important;
+    }
+    input[type='number'] {
+      width: 60px;
+      padding: 4px;
+      margin: 2px 0;
+    }
+    button {
+      background-color: #1976d2;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      margin-top: 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.95rem;
+    }
+    button:hover {
+      background-color: #0d47a1;
+    }
+    label {
+      display: inline-block;
+      margin-right: 10px;
+    }
+    .cap-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: center;
+    }
+    .cap-grid label {
+      font-size: 0.8rem;
+      background-color: #f1f1f1;
+      padding: 6px;
+      border-radius: 6px;
+      text-align: center;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    .summary {
+      margin-top: 20px;
+      font-size: 0.95rem;
+      background-color: #e8f5e9;
+      border: 1px solid #a5d6a7;
+      padding: 10px;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+<h1>Simulador de Correção de Fator de Potência</h1>
+<div class="legend">
+<p><strong>Legenda:</strong></p>
+<ul>
+<li><strong>⚠</strong>: Fator de potência final está abaixo do valor desejado ou capacitivo.</li>
+<li><strong>ind</strong>: Fator de potência indutivo (Q &lt; 0).</li>
+<li><strong>cap</strong>: Fator de potência capacitivo (Q &gt; 0).</li>
+<li>Limite máximo suportado de <strong>100 cargas</strong>.</li>
+</ul>
+</div>
+<div class="section">
+<label>Quantas cargas deseja informar? <input id="numCargas" max="100" min="1" type="number" value="6"/> <button onclick="gerarFormularioCargas()">Gerar</button></label>
+<div id="formCargas"></div>
+</div>
+<div class="section">
+<label>Fator de Potência Desejado: 
+    <input id="fpDesejado" max="1" min="0.1" step="0.01" type="number" value="0.98"/>
+    </label>
+    <label style="margin-left: 20px;">
+      <input type="checkbox" id="modoTrifasico"/> Trifásico(se monofásico não selecionar)
+    </label>
+</div>
+<div class="section">
+<button onclick="calcularCombinacoes()">Gerar Tabela de Combinações</button>
+<div id="tabelaCargas"></div>
+<div id="resumoBanco"></div>
+<div id="tabelaResultado">
+<!-- A ser inserido após as tabelas -->
+<div class="section">
+
+</div>
+<script>
+function exportarCSV() {
+  let csv = [];
+
+  // 1. Tabela de Cargas
+  const tabelaCargas = document.querySelector("#tabelaCargas table");
+  if (tabelaCargas) {
+    csv.push("Tabela de Cargas Individuais");
+    const rows = tabelaCargas.querySelectorAll("tr");
+    rows.forEach(row => {
+      const cols = row.querySelectorAll("td, th");
+      const linha = Array.from(cols).map(col => col.innerText.replace(/\n/g, ' '));
+      csv.push(linha.join(";"));
+    });
+    csv.push(""); // linha em branco
+  }
+
+  // 2. Tabela de Combinações
+  const tabelaComb = document.querySelector("#tabelaResultado table");
+  if (tabelaComb) {
+    csv.push("Tabela de Combinações");
+    const rows = tabelaComb.querySelectorAll("tr");
+    rows.forEach(row => {
+      const cols = row.querySelectorAll("td, th");
+      const linha = Array.from(cols).map(col => {
+        const inputLabels = col.querySelectorAll("label");
+        if (inputLabels.length) {
+          let partes = [];
+          inputLabels.forEach(label => {
+            const input = label.querySelector("input");
+            const qtd = input?.value;
+            const val = label.innerText.split('kVAR')[0].replace(/\n/g, '').trim();
+            if (qtd > 0) {
+              partes.push(`${qtd}x${val}kVA`);
+            }
+          });
+          return partes.join(" + ");
+        } else {
+          return col.innerText.replace(/\n/g, ' ');
+        }
+      });
+      csv.push(linha.join(";"));
+    });
+
+    // 3. Capacitores no banco (do resumo)
+    const resumo = document.querySelector(".summary");
+    if (resumo) {
+      const total = resumo.innerText.split("\n").slice(1).join(" + ").trim();
+      csv.push("");
+      csv.push("Capacitores no banco total;");
+      csv.push(total);
+    }
+  }
+
+  // Criação do arquivo
+  const blob = new Blob([csv.join("\n")], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "simulador_fp.csv";
+  link.click();
+}
+</script>
+<script>
+    const valoresCapacitores = [2.5, 5, 7.5, 10, 15, 17.5, 20, 22.5, 25, 27.5, 30, 35, 40, 45, 50, 60];
+    const combinacoesDados = {};
+
+    function gerarFormularioCargas() {
+      const n = parseInt(document.getElementById('numCargas').value);
+      const form = document.getElementById('formCargas');
+      form.innerHTML = '';
+      for (let i = 0; i < n; i++) {
+        form.innerHTML += `<div>
+          <strong>Carga ${i+1}</strong>
+          P (W): <input type='number' step='1' id='P${i}'>
+          Q (VAR): <input type='number' step='1' id='Q${i}'>
+        </div>`;
+      }
+    }
+
+    function gerarTabelaCargasIndividuais(cargas) {
+      let html = `<table><tr><th>Carga</th><th>P (W)</th><th>Q (VAR)</th><th>S (VA)</th><th>FP</th></tr>`;
+      cargas.forEach((carga, i) => {
+        const S = Math.sqrt(carga.P**2 + carga.Q**2);
+        const FP = carga.P / S;
+        let tipo = carga.Q > 0 ? 'cap' : (carga.Q < 0 ? 'ind' : '');
+        html += `<tr><td>${i+1}</td><td>${carga.P}</td><td>${carga.Q}</td><td>${S.toFixed(0)}</td><td>${FP.toFixed(3)} ${tipo}</td></tr>`;
+      });
+      html += `</table>`;
+      document.getElementById("tabelaCargas").innerHTML = html;
+    }
+
+    function calcularCombinacoes() {
+      const n = parseInt(document.getElementById('numCargas').value);
+      const fpDesejado = parseFloat(document.getElementById('fpDesejado').value);
+      const cargas = [];
+      for (let i = 0; i < n; i++) {
+        const P = parseFloat(document.getElementById(`P${i}`).value);
+        const Q = parseFloat(document.getElementById(`Q${i}`).value);
+        cargas.push({ P, Q });
+      }
+
+      gerarTabelaCargasIndividuais(cargas);
+
+      const tg_phi = Math.tan(Math.acos(fpDesejado));
+      const totalComb = 1 << n;
+      let html = `<table><tr><th>Comb</th><th>S (VA)</th><th>P (W)</th><th>Q (VAR)</th><th>Snovo (VA)</th><th>Qnovo (VAR)</th><th>ΔQ (VAR)</th><th>Qbanco (VAR)</th><th>Qreal (VAR)</th><th>FPfinal</th></tr>`;
+
+      for (let c = 1; c < totalComb; c++) {
+        let P = 0, Q = 0, comb = [];
+        for (let i = 0; i < n; i++) {
+          if (c & (1 << i)) {
+            P += cargas[i].P;
+            Q += cargas[i].Q;
+            comb.push(i + 1);
+          }
+        }
+
+        const S = Math.sqrt(P * P + Q * Q);
+        const isResistiva = (Q === 0);
+        let Snovo = '-', Qnovo = '-', deltaQ = '-';
+
+        if (!isResistiva) {
+          Snovo = (P / fpDesejado).toFixed(0);
+          Qnovo = (P * tg_phi).toFixed(0);
+          deltaQ = (Q < 0 ? Q + (P * tg_phi) : Q - (P * tg_phi)).toFixed(0);
+        }
+
+        combinacoesDados[c] = { P: P, Q: Q };
+
+        let bancoCapHTML = '<div class="cap-grid">';
+        valoresCapacitores.forEach(v => {
+          bancoCapHTML += `<label>${v}kVAR<br><input type='number' min='0' step='1' value='0' onchange='atualizarQreal(${c})' class='cap-${c}' data-kvar='${v * 1000}' data-valor='${v}'></label>`;
+        });
+        bancoCapHTML += '</div>';
+
+        html += `<tr id='row-${c}'>
+          <td>${comb.join('+')}</td>
+          <td>${S.toFixed(0)}</td>
+          <td>${P.toFixed(0)}</td>
+          <td>${Q.toFixed(0)}</td>
+          <td>${Snovo}</td>
+          <td>${Qnovo}</td>
+          <td>${deltaQ}</td>
+          <td>${bancoCapHTML}</td>
+          <td id='qreal-${c}'>${isResistiva ? '0' : '-'}</td>
+          <td id='fpfinal-${c}'>${isResistiva ? '1' : '-'}</td>
+        </tr>`;
+      }
+
+      html += `</table>`;
+      document.getElementById('tabelaResultado').innerHTML = html;
+      atualizarResumoBanco();
+    }
+
+    function atualizarResumoBanco() {
+      const resumo = {};
+      document.querySelectorAll("input[data-kvar]").forEach(input => {
+        const valor = parseFloat(input.getAttribute("data-valor"));
+        const qtd = parseInt(input.value);
+        if (!isNaN(qtd) && qtd > 0) {
+          resumo[valor] = Math.max(resumo[valor] || 0, qtd);
+        }
+      });
+      let texto = '<div class="summary"><strong>Capacitores no banco:</strong><br>';
+      Object.keys(resumo).sort((a, b) => a - b).forEach(v => {
+        texto += `${resumo[v]}x${v}k<br>`;
+      });
+      texto += '</div>';
+      document.getElementById("resumoBanco").innerHTML = texto;
+    }
+
+    function atualizarQreal(combId) {
+      const capInputs = document.querySelectorAll(`.cap-${combId}`);
+      let Qbanco = 0;
+      capInputs.forEach(input => {
+        const kvar = parseFloat(input.getAttribute('data-kvar'));
+        const qty = parseInt(input.value) || 0;
+        const modoTrifasico = document.getElementById('modoTrifasico').checked;
+    Qbanco += qty * (modoTrifasico ? kvar : (kvar / 3));
+      });
+
+      const { P, Q } = combinacoesDados[combId];
+      const Qreal = Q + Qbanco;
+      const FPfinal = Math.cos(Math.atan(Qreal / P));
+      const fpDesejado = parseFloat(document.getElementById('fpDesejado').value);
+      const tipoFP = Qreal > 0 ? 'cap' : (Qreal < 0 ? 'ind' : '');
+      const alertaFP = (FPfinal < fpDesejado) ? ' ⚠' : '';
+      const fpTexto = isNaN(FPfinal) ? '-' : `${FPfinal.toFixed(3)} ${tipoFP}${alertaFP}`;
+
+      document.getElementById(`qreal-${combId}`).textContent = Qreal.toFixed(0);
+      document.getElementById(`fpfinal-${combId}`).textContent = fpTexto;
+
+      const row = document.getElementById(`row-${combId}`);
+      if (FPfinal < fpDesejado) {
+        row.classList.add('highlight');
+      } else {
+        row.classList.remove('highlight');
+      }
+
+      atualizarResumoBanco();
+    }
+  </script>
+</div></div><div class="section"><button onclick="exportarCSV()">Exportar para CSV</button></div></body>
+</html>
